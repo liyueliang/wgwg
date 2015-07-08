@@ -1,0 +1,187 @@
+/*
+ Licensed to the Apache Software Foundation (ASF) under one
+ or more contributor license agreements.  See the NOTICE file
+ distributed with this work for additional information
+ regarding copyright ownership.  The ASF licenses this file
+ to you under the Apache License, Version 2.0 (the
+ "License"); you may not use this file except in compliance
+ with the License.  You may obtain a copy of the License at
+
+ http://www.apache.org/licenses/LICENSE-2.0
+
+ Unless required by applicable law or agreed to in writing,
+ software distributed under the License is distributed on an
+ "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ KIND, either express or implied.  See the License for the
+ specific language governing permissions and limitations
+ under the License.
+ */
+
+//
+//  AppDelegate.m
+//  wgww
+//
+//  Created by ___FULLUSERNAME___ on ___DATE___.
+//  Copyright ___ORGANIZATIONNAME___ ___YEAR___. All rights reserved.
+//
+
+#import "AppDelegate.h"
+#import "SplashViewController.h"
+#import "MobClick.h"
+#import "MainViewController.h"
+#import <Cordova/CDVPlugin.h>
+
+#define UMENG_APPKEY @"548681c5fd98c59396000518"
+#define XcodeAppVersion [[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleShortVersionString"]
+@implementation AppDelegate
+
+@synthesize window;
+
+- (id)init
+{
+    /** If you need to do any extra app-specific initialization, you can do it here
+     *  -jm
+     **/
+    NSHTTPCookieStorage* cookieStorage = [NSHTTPCookieStorage sharedHTTPCookieStorage];
+
+    [cookieStorage setCookieAcceptPolicy:NSHTTPCookieAcceptPolicyNever];
+
+    int cacheSizeMemory = 8 * 1024 * 1024; // 8MB
+    int cacheSizeDisk = 32 * 1024 * 1024; // 32MB
+#if __has_feature(objc_arc)
+        NSURLCache* sharedCache = [[NSURLCache alloc] initWithMemoryCapacity:cacheSizeMemory diskCapacity:cacheSizeDisk diskPath:@"nsurlcache"];
+#else
+        NSURLCache* sharedCache = [[[NSURLCache alloc] initWithMemoryCapacity:cacheSizeMemory diskCapacity:cacheSizeDisk diskPath:@"nsurlcache"] autorelease];
+#endif
+    [NSURLCache setSharedURLCache:sharedCache];
+
+    self = [super init];
+    return self;
+}
+
+#pragma mark UIApplicationDelegate implementation
+
+/**
+ * This is main kick off after the app inits, the views and Settings are setup here. (preferred - iOS4 and up)
+ */
+- (BOOL)application:(UIApplication*)application didFinishLaunchingWithOptions:(NSDictionary*)launchOptions
+{
+    CGRect screenBounds = [[UIScreen mainScreen] bounds];
+
+#if __has_feature(objc_arc)
+        self.window = [[UIWindow alloc] initWithFrame:screenBounds];
+#else
+        self.window = [[[UIWindow alloc] initWithFrame:screenBounds] autorelease];
+#endif
+    self.window.autoresizesSubviews = YES;
+ [[UIApplication sharedApplication] setStatusBarStyle:UIStatusBarStyleLightContent];
+
+    // Set your app's start page by setting the <content src='foo.html' /> tag in config.xml.
+    // If necessary, uncomment the line below to override it.
+    // self.viewController.startPage = @"index.html";
+
+    // NOTE: To customize the view's frame size (which defaults to full screen), override
+    // [self.viewController viewWillAppear:] in your view controller.
+    [self umengTrack];
+    NSUserDefaults *Defautls =[NSUserDefaults standardUserDefaults];
+    NSString *startApp =[Defautls objectForKey:@"appStart"];
+    if (startApp==nil) {
+        SplashViewController *splashVC =[[SplashViewController alloc]init];
+        self.window.rootViewController = splashVC;
+        //[Defautls setObject:@"1" forKey:@"appStart"];
+        //[Defautls synchronize];
+    }else{
+        self.viewController = [[MainViewController alloc]initWithNibName:@"MainViewController" bundle:nil];
+        self.window.rootViewController =self.viewController;
+    }
+    
+    [self.window makeKeyAndVisible];
+    return YES;
+}
+- (void)umengTrack {
+    //    [MobClick setCrashReportEnabled:NO]; // 如果不需要捕捉异常，注释掉此行
+    //[MobClick setLogEnabled:YES];  // 打开友盟sdk调试，注意Release发布时需要注释掉此行,减少io消耗
+    [MobClick setAppVersion:XcodeAppVersion]; //参数为NSString * 类型,自定义app版本信息，如果不设置，默认从CFBundleVersion里取
+    //
+    [MobClick startWithAppkey:UMENG_APPKEY reportPolicy:(ReportPolicy) REALTIME channelId:nil];
+    //   reportPolicy为枚举类型,可以为 REALTIME, BATCH,SENDDAILY,SENDWIFIONLY几种
+    //   channelId 为NSString * 类型，channelId 为nil或@""时,默认会被被当作@"App Store"渠道
+    
+    [MobClick checkUpdate];   //自动更新检查, 如果需要自定义更新请使用下面的方法,需要接收一个(NSDictionary *)appInfo的参数
+    // [MobClick checkUpdateWithDelegate:self selector:@selector(updateMethod:)];
+    
+    //[MobClick updateOnlineConfig];  //在线参数配置
+    
+    //    1.6.8之前的初始化方法
+    //    [MobClick setDelegate:self reportPolicy:REALTIME];  //建议使用新方法
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(onlineConfigCallBack:) name:UMOnlineConfigDidFinishedNotification object:nil];
+    
+}
+- (void)onlineConfigCallBack:(NSNotification *)note {
+    
+    NSLog(@"online config has fininshed and note = %@", note.userInfo);
+} 
+- (void)applicationWillEnterForeground:(UIApplication *)application
+{
+    [MobClick checkUpdate]; 
+    // Called as part of the transition from the background to the inactive state; here you can undo many of the changes made on entering the background.
+}
+// this happens while we are running ( in the background, or from within our own app )
+// only valid if wgww-Info.plist specifies a protocol to handle
+- (BOOL)application:(UIApplication*)application openURL:(NSURL*)url sourceApplication:(NSString*)sourceApplication annotation:(id)annotation
+{
+    if (!url) {
+        return NO;
+    }
+
+    // calls into javascript global function 'handleOpenURL'
+    NSString* jsString = [NSString stringWithFormat:@"handleOpenURL(\"%@\");", url];
+    [self.viewController.webView stringByEvaluatingJavaScriptFromString:jsString];
+
+    // all plugins will get the notification, and their handlers will be called
+    [[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:CDVPluginHandleOpenURLNotification object:url]];
+
+    return YES;
+}
+
+// repost all remote and local notification using the default NSNotificationCenter so multiple plugins may respond
+- (void)            application:(UIApplication*)application
+    didReceiveLocalNotification:(UILocalNotification*)notification
+{
+    // re-post ( broadcast )
+    [[NSNotificationCenter defaultCenter] postNotificationName:CDVLocalNotification object:notification];
+}
+
+- (void)                                application:(UIApplication *)application
+   didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken
+{
+    // re-post ( broadcast )
+    NSString* token = [[[[deviceToken description]
+                         stringByReplacingOccurrencesOfString: @"<" withString: @""]
+                        stringByReplacingOccurrencesOfString: @">" withString: @""]
+                       stringByReplacingOccurrencesOfString: @" " withString: @""];
+
+    [[NSNotificationCenter defaultCenter] postNotificationName:CDVRemoteNotification object:token];
+}
+
+- (void)                                 application:(UIApplication *)application
+    didFailToRegisterForRemoteNotificationsWithError:(NSError *)error
+{
+    // re-post ( broadcast )
+    [[NSNotificationCenter defaultCenter] postNotificationName:CDVRemoteNotificationError object:error];
+}
+
+- (NSUInteger)application:(UIApplication*)application supportedInterfaceOrientationsForWindow:(UIWindow*)window
+{
+    // iPhone doesn't support upside down by default, while the iPad does.  Override to allow all orientations always, and let the root view controller decide what's allowed (the supported orientations mask gets intersected).
+    NSUInteger supportedInterfaceOrientations = (1 << UIInterfaceOrientationPortrait) | (1 << UIInterfaceOrientationLandscapeLeft) | (1 << UIInterfaceOrientationLandscapeRight) | (1 << UIInterfaceOrientationPortraitUpsideDown);
+
+    return supportedInterfaceOrientations;
+}
+
+- (void)applicationDidReceiveMemoryWarning:(UIApplication*)application
+{
+    [[NSURLCache sharedURLCache] removeAllCachedResponses];
+}
+
+@end
